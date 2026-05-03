@@ -1,5 +1,31 @@
 #!/usr/bin/env python
 
+
+# Author: Scott King
+# Subject: CS463
+# 
+# this program implements a simple, turn-based message passing mechanism.
+# the client and server each generate an RSA keypair and exchange public keys.
+# the client generates a random 8-byte DES key, encrypts it with the server's
+# public key, then sends to the server. the server decrypts it, then uses a
+# pre-programmed string to validate to the client that it received the key correctly.
+# once this keying handshake process is complete, the client and server take turns sending
+# DES-encrypted messages to each other.
+#
+# There are several different message types that exist in this program. Below is a short
+# description of them
+#
+# Type	Description
+# ####	###########
+#   01	client send public key
+#   02	server send public key
+#   03	client send DES key - client encrypts DES key with server pub key and sends to server
+#   04	server verify DES key - server decrypts DES key, encrypts control_message with DES key and sends type 04 to client
+#   05	client verify DES key - client decrypts with DES key, verifies that it matches control_message, sends type 05 to server
+#   06	client message/ready - client sends to server signifying a message and client is ready for server message
+#   07	server message/ready - same as type 06 but for server
+#   08	disconnect
+
 import socket
 import yaml
 import argparse
@@ -33,7 +59,7 @@ def main():
     server(config_data['port'])
 
 def server(port):
-  control_message = 'this is a test'
+  control_message = 'this is a test'	# used to validate DES key with client
 
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.bind(('', port))
@@ -41,14 +67,14 @@ def server(port):
   print(f"Server is listening on {port}")
 
   s_priv = genRSAKeyPair()
-  s_pub = RSA.import_key(s_priv.public_key().export_key()).export_key()
+  s_pub = RSA.import_key(s_priv.public_key().export_key()).export_key()	# make sure no private key exists with the s_pub object
   print('my public key is')
   print(s_pub.decode())
 
-  rsa_cipher = PKCS1_OAEP.new(s_priv)
+  rsa_cipher = PKCS1_OAEP.new(s_priv)	# server creates the rsa_cipher first, it will need this to decrypt the DES key
 
   try:
-    while True:
+    while True:	# outer loop allows clients to reconnect
       c, addr = s.accept()
       c_pub = None
       print(f"Got connection from {addr}")
@@ -57,6 +83,8 @@ def server(port):
       des_cipher = None
       des_key = None
 
+      # first inner loop represents the key exchange handshake phase, after we receive
+      # type 05, we break the loop and move to messaging phase
       while True:
         msg = c.recv(1024)
         msg_type = bytes.hex(msg[0:1])
@@ -93,6 +121,8 @@ def server(port):
       ciphertext = des_cipher.encrypt(pad(text))
       c.send(bytes.fromhex('07') + ciphertext)
 
+      # second inner loop is the encrypted messaging phase with the DES key.
+      # continue until client disconnects
       while True:
         msg = c.recv(1024)
         msg_type = bytes.hex(msg[0:1])
@@ -140,12 +170,12 @@ def client(server, port):
   c_snd_pub_key = bytes.fromhex('01')
   s.send(c_snd_pub_key + c_pub.export_key())
 
-  # initial handshake section
-  # 1. public key exchange
-  # 2. DES key generation
-
   try:
-    rsa_cipher = None
+    rsa_cipher = None	# can't build this until we receive server's public key
+
+    # no outer loop for client, as soon as it disconnects it exits
+    # first loop handles client-side key exchange handshake, breaking
+    # after we receive type 04 and validate the control_message
     while True:
       msg_type = None
       msg = s.recv(1024)
@@ -172,6 +202,7 @@ def client(server, port):
           s.close()
           sys.exit(1)
 
+    # second loop handles client messaging phase, breaking if server sends disconnect message
     while True:
       msg = s.recv(1024)
       msg_type = bytes.hex(msg[0:1])
@@ -188,12 +219,14 @@ def client(server, port):
         ciphertext = des_cipher.encrypt(pad(text))
         s.send(bytes.fromhex('06') + ciphertext)
 
+  # safely close the connection on Ctrl-C
   except KeyboardInterrupt:
     s.send(bytes.fromhex('08'))
     s.close()
     print('exiting on keyboard interrupt')
   
 
+# had to add the pad function to make sure that the message we send is correct length for DES
 def pad(msg):
 
   # assume modulus is 8 because DES keys are 8 bytes, now pad input message to be multiple of 8

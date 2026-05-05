@@ -210,7 +210,6 @@ def client(server, port):
 
       if msg_type == '07':
         text = des_cipher.decrypt(msg)
-        print(text)
         if text == 'disconnect':
           s.close()
           fail('server disconnected')

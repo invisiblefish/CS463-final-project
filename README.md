@@ -21,6 +21,12 @@ apt install python3-pycryptodome python3-pyyaml
 ```
 
 # Usage
+
+There are only four options for this program.
+```bash
+-h (prints help), -c CONFIG_FILE, -C (client mode) , -S (server mode)
+```
+
 On the server:
 ```bash
 ./463-chat.py -S
